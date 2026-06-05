@@ -1,0 +1,21 @@
+# cc-router configuration. Copy to `config.toml` and fill in the two secrets.
+# config.toml is gitignored — never commit your real tokens.
+
+# Local listener. 127.0.0.1 keeps it off the network.
+bind = "127.0.0.1"
+port = 8788
+
+[anthropic]
+base_url = "https://api.anthropic.com"
+# One-time: run `claude setup-token` and paste the sk-ant-oat01-... token here.
+# Long-lived / self-refreshing; regenerate roughly yearly.
+oauth_token = "sk-ant-oat01-REPLACE_ME"
+# Beta flag that marks the request as subscription-OAuth auth.
+# If Opus passthrough ever 401s, this value is the first thing to check.
+oauth_beta = "oauth-2025-04-20"
+
+[deepseek]
+base_url = "https://api.deepseek.com/anthropic"
+api_key = "sk-REPLACE_ME"
+pro_model = "deepseek-v4-pro"     # what the Sonnet tier maps to
+flash_model = "deepseek-v4-flash" # what the Haiku / small-fast tier maps to
