@@ -11,24 +11,34 @@ if (-not (Test-Path $exe)) {
     Push-Location $here; cargo build --release; Pop-Location
 }
 
-# The router reads config.toml from its working directory, so start it in $here.
-$router = Start-Process -FilePath $exe -WorkingDirectory $here -PassThru
+$port = 8788
+if (Test-Path (Join-Path $here "config.toml")) {
+    $m = Select-String -Path (Join-Path $here "config.toml") -Pattern '^\s*port\s*=\s*(\d+)' | Select-Object -First 1
+    if ($m) { $port = [int]$m.Matches[0].Groups[1].Value }
+}
+$base = "http://127.0.0.1:$port"
+
+function Test-Router { try { Invoke-WebRequest $base -TimeoutSec 1 -ErrorAction Stop | Out-Null; return $true } catch { return ($null -ne $_.Exception.Response) } }
+
+$startedOurs = $false
+if (Test-Router) {
+    Write-Host "Router already running on :$port (reusing existing instance)." -ForegroundColor Cyan
+} else {
+    $startedOurs = $true
+    $router = Start-Process -FilePath $exe -WorkingDirectory $here -PassThru
+    $deadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $deadline -and -not (Test-Router)) { Start-Sleep -Milliseconds 200 }
+    Write-Host "Started router on :$port." -ForegroundColor Green
+}
 
 try {
-    # Give the listener a moment to bind.
-    $deadline = (Get-Date).AddSeconds(5)
-    while ((Get-Date) -lt $deadline) {
-        try { Invoke-WebRequest "http://127.0.0.1:8788" -TimeoutSec 1 -ErrorAction Stop | Out-Null; break }
-        catch { if ($_.Exception.Response) { break } ; Start-Sleep -Milliseconds 200 }
-    }
-
-    $env:ANTHROPIC_BASE_URL  = "http://127.0.0.1:8788"
-    $env:ANTHROPIC_AUTH_TOKEN = "dummy-local-token"  # real upstream creds live in the router
-    Write-Host "Router up. Launching Claude Code (default tier = DeepSeek v4-pro; /model opus for real Opus)." -ForegroundColor Green
+    $env:ANTHROPIC_BASE_URL  = $base
+    $env:ANTHROPIC_AUTH_TOKEN = "dummy-local-token"
+    Write-Host "Launching Claude Code (default tier = deepseek-v4-pro; /model opus for real Opus)." -ForegroundColor Green
     claude @args
 }
 finally {
-    if ($router -and -not $router.HasExited) {
+    if ($startedOurs -and $router -and -not $router.HasExited) {
         Stop-Process -Id $router.Id -ErrorAction SilentlyContinue
         Write-Host "Router stopped." -ForegroundColor DarkGray
     }
