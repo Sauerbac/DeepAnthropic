@@ -25,7 +25,7 @@ if (Test-Router) {
     Write-Host "Router already running on :$port (reusing existing instance)." -ForegroundColor Cyan
 } else {
     $startedOurs = $true
-    $router = Start-Process -FilePath $exe -WorkingDirectory $here -PassThru
+    $router = Start-Process -FilePath $exe -WorkingDirectory $here -PassThru -RedirectStandardOutput (Join-Path $here "router.log") -RedirectStandardError (Join-Path $here "router.log")
     $deadline = (Get-Date).AddSeconds(5)
     while ((Get-Date) -lt $deadline -and -not (Test-Router)) { Start-Sleep -Milliseconds 200 }
     Write-Host "Started router on :$port." -ForegroundColor Green

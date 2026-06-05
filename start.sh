@@ -18,7 +18,7 @@ if curl -s -o /dev/null "$base"; then
     echo "Router already running on :$port (reusing existing instance)."
 else
     started_ours=true
-    ( cd "$here" && exec "$exe" ) & router_pid=$!
+    ( cd "$here" && exec "$exe" ) </dev/null &>"$here/router.log" & router_pid=$!
     for _ in $(seq 1 25); do curl -s -o /dev/null "$base" && break; sleep 0.2; done
     echo "Started router on :$port."
 fi
