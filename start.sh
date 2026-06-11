@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Launches cc-router, then Claude Code pointed at it. Stops the router on exit.
+# Launches DeepAnthropic, then Claude Code pointed at it. Stops the router on exit.
 # Claude Code runs in your CURRENT directory (so the alias works from anywhere).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exe="$here/target/release/cc-router.exe"
+exe="$here/target/release/DeepAnthropic.exe"
 
 [ -f "$here/config.toml" ] || { echo "config.toml missing. Run: cp config.toml.example config.toml  and fill in your tokens."; exit 1; }
 if [ ! -f "$exe" ]; then echo "Building release binary..."; ( cd "$here" && cargo build --release ); fi

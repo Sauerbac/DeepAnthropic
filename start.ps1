@@ -1,7 +1,7 @@
-# Launches cc-router, then Claude Code pointed at it. Stops the router on exit.
+# Launches DeepAnthropic, then Claude Code pointed at it. Stops the router on exit.
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$exe  = Join-Path $here "target\release\cc-router.exe"
+$exe  = Join-Path $here "target\release\DeepAnthropic.exe"
 
 if (-not (Test-Path (Join-Path $here "config.toml"))) {
     throw "config.toml missing. Copy config.toml.example to config.toml and fill in your tokens."

@@ -1,4 +1,4 @@
-# cc-router configuration. Copy to `config.toml` and fill in the two secrets.
+# DeepAnthropic configuration. Copy to `config.toml` and fill in the two secrets.
 # config.toml is gitignored — never commit your real tokens.
 
 # Local listener. 127.0.0.1 keeps it off the network.

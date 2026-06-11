@@ -1,7 +1,7 @@
-//! cc-router — a tiny Anthropic-format reverse proxy for one blended Claude Code session.
+//! DeepAnthropic — a tiny Anthropic-format reverse proxy for one blended Claude Code session.
 //!
 //! Routes by the `model` field in the request body:
-//!   * model contains "opus"  -> api.anthropic.com   (your Pro plan, OAuth Bearer + oauth beta)
+//!   * model contains "opus", "fable" or "mythos" -> api.anthropic.com (your Pro plan, OAuth Bearer + oauth beta)
 //!   * model contains "haiku" -> api.deepseek.com/anthropic  (x-api-key, model -> deepseek-v4-flash)
 //!   * anything else (sonnet) -> api.deepseek.com/anthropic  (x-api-key, model -> deepseek-v4-pro)
 //!
@@ -16,7 +16,9 @@ use axum::{
     Router,
 };
 use serde::Deserialize;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize)]
 struct Config {
@@ -74,6 +76,98 @@ fn d_flash() -> String {
 struct AppState {
     cfg: Config,
     client: reqwest::Client,
+    stats: Mutex<Stats>,
+    started: Instant,
+}
+
+/// In-memory request log backing the /status page.
+#[derive(Default)]
+struct Stats {
+    /// (requested model, upstream target) -> count
+    counts: HashMap<(String, String), u64>,
+    /// most recent requests, newest first, capped at RECENT_CAP
+    recent: Vec<RecentEntry>,
+    total: u64,
+}
+
+struct RecentEntry {
+    unix_secs: u64,
+    model: String,
+    target: String,
+}
+
+const RECENT_CAP: usize = 50;
+
+fn record_request(state: &AppState, model: &str, target: &str) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut s = state.stats.lock().unwrap();
+    s.total += 1;
+    *s.counts
+        .entry((model.to_string(), target.to_string()))
+        .or_insert(0) += 1;
+    s.recent.insert(
+        0,
+        RecentEntry {
+            unix_secs: now,
+            model: model.to_string(),
+            target: target.to_string(),
+        },
+    );
+    s.recent.truncate(RECENT_CAP);
+}
+
+fn status_page(state: &AppState) -> String {
+    let s = state.stats.lock().unwrap();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let uptime = state.started.elapsed().as_secs();
+
+    let mut counts: Vec<_> = s.counts.iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(a.1));
+    let count_rows: String = counts
+        .iter()
+        .map(|((model, target), n)| {
+            format!("<tr><td>{model}</td><td>{target}</td><td>{n}</td></tr>")
+        })
+        .collect();
+
+    let recent_rows: String = s
+        .recent
+        .iter()
+        .map(|e| {
+            let ago = now.saturating_sub(e.unix_secs);
+            format!(
+                "<tr><td>{}s ago</td><td>{}</td><td>{}</td></tr>",
+                ago, e.model, e.target
+            )
+        })
+        .collect();
+
+    format!(
+        r#"<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="5">
+<title>DeepAnthropic status</title>
+<style>
+body {{ font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; background:#111; color:#eee; }}
+h1 {{ font-size: 1.3rem; }} h2 {{ font-size: 1rem; margin-top: 1.5rem; }}
+table {{ border-collapse: collapse; width: 100%; font-size: 0.9rem; }}
+td, th {{ border-bottom: 1px solid #333; padding: 4px 8px; text-align: left; }}
+.muted {{ color: #888; font-size: 0.85rem; }}
+</style></head><body>
+<h1>DeepAnthropic</h1>
+<p class="muted">up {uptime}s &middot; {total} requests routed &middot; auto-refreshes every 5s</p>
+<h2>Model usage</h2>
+<table><tr><th>requested model</th><th>routed to</th><th>count</th></tr>{count_rows}</table>
+<h2>Recent requests</h2>
+<table><tr><th>when</th><th>requested model</th><th>routed to</th></tr>{recent_rows}</table>
+</body></html>"#,
+        total = s.total,
+    )
 }
 
 enum Route {
@@ -84,7 +178,7 @@ enum Route {
 
 fn pick_route(model: &str) -> Route {
     let m = model.to_ascii_lowercase();
-    if m.contains("opus") {
+    if m.contains("opus") || m.contains("fable") || m.contains("mythos") {
         Route::Anthropic
     } else if m.contains("haiku") {
         Route::DeepseekFlash
@@ -124,11 +218,13 @@ async fn main() {
     let state = Arc::new(AppState {
         cfg,
         client: reqwest::Client::new(),
+        stats: Mutex::new(Stats::default()),
+        started: Instant::now(),
     });
 
     let app = Router::new().fallback(handler).with_state(state);
     let addr = format!("{bind}:{port}");
-    tracing::info!("cc-router listening on http://{addr}");
+    tracing::info!("DeepAnthropic listening on http://{addr}");
     tracing::info!("point Claude Code at it:  $env:ANTHROPIC_BASE_URL = \"http://{addr}\"");
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
@@ -143,6 +239,13 @@ async fn handler(
     body: Bytes,
 ) -> Response {
     let cfg = &state.cfg;
+
+    if method == Method::GET && uri.path() == "/status" {
+        return Response::builder()
+            .header("content-type", "text/html; charset=utf-8")
+            .body(Body::from(status_page(&state)))
+            .unwrap();
+    }
 
     // Pull the model out of the JSON body (best-effort; non-JSON requests fall through).
     let model = serde_json::from_slice::<serde_json::Value>(&body)
@@ -183,12 +286,14 @@ async fn handler(
         .unwrap_or_else(|| uri.path());
     let url = format!("{}{}", base_url.trim_end_matches('/'), path_and_query);
 
+    let target = new_model.unwrap_or("anthropic:passthrough");
     tracing::info!(
         "{} {} -> {}",
         method,
         model.as_deref().unwrap_or("<no-model>"),
-        new_model.unwrap_or("anthropic:opus-passthrough")
+        target
     );
+    record_request(&state, model.as_deref().unwrap_or("<no-model>"), target);
 
     let rmethod = reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap();
     let mut req = state.client.request(rmethod, &url).body(out_body);
@@ -239,7 +344,7 @@ async fn handler(
         Ok(r) => r,
         Err(e) => {
             tracing::error!("upstream error: {e}");
-            return (StatusCode::BAD_GATEWAY, format!("cc-router upstream error: {e}"))
+            return (StatusCode::BAD_GATEWAY, format!("DeepAnthropic upstream error: {e}"))
                 .into_response();
         }
     };

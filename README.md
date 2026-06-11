@@ -1,11 +1,11 @@
-# cc-router
+# DeepAnthropic
 
 A ~250-line local reverse proxy that fronts **one blended Claude Code session** and routes
 each request by its `model` field:
 
 | Model in request | Upstream | Auth | Sent as |
 |---|---|---|---|
-| `…opus…` | `api.anthropic.com` (your Pro plan) | `Bearer sk-ant-oat01…` + `anthropic-beta: oauth…` | unchanged |
+| `…opus…` / `…fable…` / `…mythos…` | `api.anthropic.com` (your Pro plan) | `Bearer sk-ant-oat01…` + `anthropic-beta: oauth…` | unchanged |
 | `…sonnet…` (and default) | `api.deepseek.com/anthropic` | `x-api-key` | `deepseek-v4-pro` |
 | `…haiku…` (small/fast slot) | `api.deepseek.com/anthropic` | `x-api-key` | `deepseek-v4-flash` |
 
@@ -44,7 +44,7 @@ straight back.
 ## Manual launch (without start.ps1)
 
 ```powershell
-./target/release/cc-router.exe        # terminal 1 (reads ./config.toml)
+./target/release/DeepAnthropic.exe    # terminal 1 (reads ./config.toml)
 
 $env:ANTHROPIC_BASE_URL  = "http://127.0.0.1:8788"   # terminal 2
 $env:ANTHROPIC_AUTH_TOKEN = "dummy-local-token"
